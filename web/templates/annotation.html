@@ -1,0 +1,60 @@
+<!--
+annotation.html - Display details about a user's annotation job
+-->
+
+{% extends "base.html" %}
+
+{% block title %}Annotation Details{% endblock %}
+
+{% block body %}
+    {% include "header.html" %}
+
+    <div class="container">
+
+        <div class="page-header">
+            <h1>Annotation Details</h1>
+        </div>
+
+        <table class="table table-bordered">
+            <tbody>
+                <tr>
+                    <th>Request ID</th>
+                    <td>{{ annotation.job_id }}</td>
+                </tr>
+                <tr>
+                    <th>Status</th>
+                    <td>{{ annotation.job_status }}</td>
+                </tr>
+                <tr>
+                    <th>Request Time</th>
+                    <td>{{ annotation.request_time_str }}</td>
+                </tr>
+                <tr>
+                    <th>Input Filename</th>
+                    <td>
+                        <a href="{{ annotation.input_file_url }}">{{ annotation.input_file_name }}</a>
+                    </td>
+                </tr>
+                {% if annotation.job_status == 'COMPLETED' %}
+                <tr>
+                    <th>Complete Time</th>
+                    <td>{{ annotation.complete_time_str }}</td>
+                </tr>
+                <tr>
+                    <th>Results Filename</th>
+                    <td><a href="{{ annotation.result_file_url }}">download</a></td>
+                </tr>
+                <tr>
+                    <th>Log Filename</th>
+                    <td><a href="{{ url_for('annotation_log', id=annotation.job_id) }}">view</a></td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+
+        <hr />
+
+        <a href="{{ url_for('annotations_list') }}">&larr; back to annotations list</a>
+
+    </div> <!-- container -->
+{% endblock %}
