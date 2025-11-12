@@ -170,11 +170,35 @@ def create_annotation_job_request():
 
 
 @app.route("/annotations", methods=["GET"])
+@authenticated
 def annotations_list():
 
     # Get list of annotations to display
+    user_id = session["primary_identity"]
+    dynamodb = boto3.resource("dynamodb", region_name=app.config["AWS_REGION_NAME"])
+    table = dynamodb.Table(app.config["AWS_DYNAMODB_ANNOTATIONS_TABLE"])
 
-    return render_template("annotations.html", annotations=None)
+    try:
+        response = table.query(
+            IndexName="user_id_index",
+            KeyConditionExpression=Key("user_id").eq(user_id)
+        )
+        items = response.get("Items", [])
+    except Exception as e:
+        app.logger.error(f"Unable to query DynamoDB: {e}")
+        abort(500)
+
+    # Convert times and sort by request_time (descending)
+    for item in items:
+        item["request_time_str"] = datetime.fromtimestamp(item["request_time"]).strftime("%Y-%m-%d %H:%M:%S")
+
+    items.sort(key=lambda x: x["request_time"], reverse=True)
+
+    if len(items) == 0:
+        flash("You have no annotation jobs yet.")
+        return render_template("annotations.html", annotations=None)
+
+    return render_template("annotations.html", annotations=items)
 
 
 """Display details of a specific annotation job
@@ -182,17 +206,89 @@ def annotations_list():
 
 
 @app.route("/annotations/<id>", methods=["GET"])
+@authenticated
 def annotation_details(id):
-    pass
+    user_id = session["primary_identity"]
+    dynamodb = boto3.resource("dynamodb", region_name=app.config["AWS_REGION_NAME"])
+    table = dynamodb.Table(app.config["AWS_DYNAMODB_ANNOTATIONS_TABLE"])
 
+    try:
+        response = table.get_item(Key={"job_id": id})
+        item = response.get("Item", None)
+    except Exception as e:
+        app.logger.error(f"Error getting job {id} from DynamoDB: {e}")
+        abort(500)
+
+    if item is None:
+        abort(404)
+    if item["user_id"] != user_id:
+        abort(403)
+
+    # Convert epoch times
+    item["request_time_str"] = datetime.fromtimestamp(item["request_time"]).strftime("%Y-%m-%d %H:%M:%S")
+    if "complete_time" in item:
+        item["complete_time_str"] = datetime.fromtimestamp(item["complete_time"]).strftime("%Y-%m-%d %H:%M:%S")
+
+    # Generate pre-signed download URLs for input & results files
+    s3 = boto3.client("s3", region_name=app.config["AWS_REGION_NAME"], config=Config(signature_version="s3v4"))
+    bucket_name = app.config["AWS_S3_RESULTS_BUCKET"]
+    input_bucket = app.config["AWS_S3_INPUTS_BUCKET"]
+
+    input_file_url = s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": input_bucket, "Key": item["s3_key_input_file"]},
+        ExpiresIn=app.config["AWS_SIGNED_REQUEST_EXPIRATION"]
+    )
+
+    item["input_file_url"] = input_file_url
+
+    if item["job_status"] == "COMPLETED":
+        result_file_url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket_name, "Key": item["s3_key_result_file"]},
+            ExpiresIn=app.config["AWS_SIGNED_REQUEST_EXPIRATION"]
+        )
+        item["result_file_url"] = result_file_url
+
+    return render_template("annotation.html", annotation=item)
 
 """Display the log file contents for an annotation job
 """
 
 
 @app.route("/annotations/<id>/log", methods=["GET"])
+@authenticated
 def annotation_log(id):
-    pass
+    user_id = session["primary_identity"]
+    dynamodb = boto3.resource("dynamodb", region_name=app.config["AWS_REGION_NAME"])
+    table = dynamodb.Table(app.config["AWS_DYNAMODB_ANNOTATIONS_TABLE"])
+
+    try:
+        response = table.get_item(Key={"job_id": id})
+        item = response.get("Item", None)
+    except Exception as e:
+        app.logger.error(f"Error getting job {id}: {e}")
+        abort(500)
+
+    if item is None:
+        abort(404)
+    if item["user_id"] != user_id:
+        abort(403)
+
+    # Fetch the log file from S3
+    s3 = boto3.client("s3", region_name=app.config["AWS_REGION_NAME"])
+    bucket_name = app.config["AWS_S3_RESULTS_BUCKET"]
+    log_key = item["s3_key_log_file"]
+
+    try:
+        obj = s3.get_object(Bucket=bucket_name, Key=log_key)
+        log_data = obj["Body"].read().decode("utf-8")
+    except Exception as e:
+        app.logger.error(f"Unable to read log file {log_key}: {e}")
+        abort(500)
+
+    return render_template("view_log.html", log_content=log_data, job_id=id)
+
 
 
 """Subscription management handler
