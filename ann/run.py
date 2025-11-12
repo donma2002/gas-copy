@@ -134,7 +134,7 @@ if __name__ == "__main__":
         print(f"Created {annotated_path} and {log_path}")
 
         # Define S3 object keys
-        s3_prefix = f"{CNETID}/{USERNAME}/{job_id}/"
+        s3_prefix = f"{CNETID}/{job_id}/"
         result_key = s3_prefix + os.path.basename(annotated_path)
         log_key = s3_prefix + os.path.basename(log_path)
 

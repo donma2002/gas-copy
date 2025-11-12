@@ -24,7 +24,7 @@ table = dynamodb.Table(f"{CNETID}_annotations")
 
 os.makedirs(LOCAL_JOB_DIR, exist_ok=True)
 
-print("[INFO] A9 Annotator started. Listening for messages...")
+print("[INFO] A10 Annotator started. Listening for messages...")
 
 def download_from_s3(bucket, key, job_id):
     """Download input file for this job to local storage. [2]"""
@@ -67,7 +67,7 @@ def launch_annotation(local_path, job_id):
     """Launch AnnTools annotation subprocess in background. [4]"""
     try:
         print(f"[INFO] Launching annotation job {job_id}...")
-        subprocess.Popen(["python3", "anntools/a9_run.py", local_path, job_id])  # [4]
+        subprocess.Popen(["python3", "run.py", local_path, job_id])  # [4]
         print(f"[INFO] Job {job_id} successfully started.")
         return True
     except Exception as e:
