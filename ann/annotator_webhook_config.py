@@ -1,5 +1,3 @@
-# ann_config.py
-#
 # Copyright (C) 2015-2023 Vas Vasiliadis
 # University of Chicago
 #
@@ -48,6 +46,12 @@ class Config(object):
 
     # AWS DynamoDB
     AWS_DYNAMODB_ANNOTATIONS_TABLE = f"{iam_username}_annotations"
+
+    # SQS Queue URL (A13 queue)
+    SQS_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/127134666975/donma_a13_job_requests"
+
+    # Local job dir
+    LOCAL_JOB_DIR = "/home/ubuntu/annotator_jobs"
 
 
 ### EOF

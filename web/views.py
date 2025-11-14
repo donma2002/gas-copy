@@ -27,6 +27,7 @@ from flask import abort, flash, redirect, render_template, request, session, url
 
 from app import app, db
 from decorators import authenticated, is_premium
+from decimal import Decimal
 
 """Start annotation request
 Create the required AWS S3 policy document and render a form for
@@ -78,7 +79,6 @@ def annotate():
         ["starts-with", "$csrf_token", ""],
     ]
 
-    # Generate the presigned POST call
     try:
         presigned_post = s3.generate_presigned_post(
             Bucket=bucket_name,
@@ -172,31 +172,49 @@ def create_annotation_job_request():
 @app.route("/annotations", methods=["GET"])
 @authenticated
 def annotations_list():
+    """
+    Lists all annotation jobs for the currently logged-in user.
+    Fetches job metadata from DynamoDB and formats timestamps
+    for display in the 'annotations.html' template.
+    """
 
-    # Get list of annotations to display
+    region = app.config["AWS_REGION_NAME"]
+    table_name = app.config["AWS_DYNAMODB_ANNOTATIONS_TABLE"]
     user_id = session["primary_identity"]
-    dynamodb = boto3.resource("dynamodb", region_name=app.config["AWS_REGION_NAME"])
-    table = dynamodb.Table(app.config["AWS_DYNAMODB_ANNOTATIONS_TABLE"])
+
+    # Connect to DynamoDB
+    dynamodb = boto3.resource("dynamodb", region_name=region)
+    table = dynamodb.Table(table_name)
 
     try:
+        # Query for all jobs belonging to this user
         response = table.query(
-            IndexName="user_id_index",
             KeyConditionExpression=Key("user_id").eq(user_id)
         )
         items = response.get("Items", [])
     except Exception as e:
-        app.logger.error(f"Unable to query DynamoDB: {e}")
-        abort(500)
+        app.logger.error(f"Unable to query DynamoDB for user {user_id}: {e}")
+        return abort(500)
 
-    # Convert times and sort by request_time (descending)
+    items.sort(key=lambda x: x.get("submit_time", 0), reverse=True)
+
     for item in items:
-        item["request_time_str"] = datetime.fromtimestamp(item["request_time"]).strftime("%Y-%m-%d %H:%M:%S")
+        if "submit_time" in item:
+            ts = item["submit_time"]
+            if isinstance(ts, Decimal):
+                ts = float(ts)
+            item["request_time_str"] = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            item["request_time_str"] = "N/A"
 
-    items.sort(key=lambda x: x["request_time"], reverse=True)
 
-    if len(items) == 0:
-        flash("You have no annotation jobs yet.")
-        return render_template("annotations.html", annotations=None)
+        if "complete_time" in item:
+            ts = item["complete_time"]
+            if isinstance(ts, Decimal):
+                ts = float(ts) 
+            item["complete_time_str"] = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            item["complete_time_str"] = "N/A"
 
     return render_template("annotations.html", annotations=items)
 
@@ -213,11 +231,12 @@ def annotation_details(id):
     table = dynamodb.Table(app.config["AWS_DYNAMODB_ANNOTATIONS_TABLE"])
 
     try:
-        response = table.get_item(Key={"job_id": id})
+        response = table.get_item(Key={"user_id": user_id, "job_id": id})
         item = response.get("Item", None)
     except Exception as e:
         app.logger.error(f"Error getting job {id} from DynamoDB: {e}")
         abort(500)
+
 
     if item is None:
         abort(404)
@@ -225,9 +244,21 @@ def annotation_details(id):
         abort(403)
 
     # Convert epoch times
-    item["request_time_str"] = datetime.fromtimestamp(item["request_time"]).strftime("%Y-%m-%d %H:%M:%S")
+    if "submit_time" in item:
+        ts = item["submit_time"]
+        if isinstance(ts, Decimal):
+            ts = float(ts)
+        item["request_time_str"] = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        item["request_time_str"] = "N/A"
+
     if "complete_time" in item:
-        item["complete_time_str"] = datetime.fromtimestamp(item["complete_time"]).strftime("%Y-%m-%d %H:%M:%S")
+        ts = item["complete_time"]
+        if isinstance(ts, Decimal):
+            ts = float(ts)
+        item["complete_time_str"] = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        item["complete_time_str"] = "N/A"
 
     # Generate pre-signed download URLs for input & results files
     s3 = boto3.client("s3", region_name=app.config["AWS_REGION_NAME"], config=Config(signature_version="s3v4"))
@@ -264,7 +295,7 @@ def annotation_log(id):
     table = dynamodb.Table(app.config["AWS_DYNAMODB_ANNOTATIONS_TABLE"])
 
     try:
-        response = table.get_item(Key={"job_id": id})
+        response = table.get_item(Key={"user_id": user_id, "job_id": id})
         item = response.get("Item", None)
     except Exception as e:
         app.logger.error(f"Error getting job {id}: {e}")

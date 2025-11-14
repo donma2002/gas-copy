@@ -155,7 +155,7 @@ class Config(object):
     )
 
     # AWS SQS queues
-    AWS_SQS_REQUESTS_QUEUE_NAME = ""
+    AWS_SQS_REQUESTS_QUEUE_NAME = f"{iam_username}_a11_job_requests"
 
     # AWS DynamoDB table
     AWS_DYNAMODB_ANNOTATIONS_TABLE = f"{iam_username}_annotations"

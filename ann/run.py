@@ -58,7 +58,7 @@ def upload_to_s3(local_path, bucket, key):
         raise
 
 
-def update_job_status(job_id, result_key, log_key):
+def update_job_status(job_id, result_key, log_key, user_id):
     """
     Updates the DynamoDB record for a job to COMPLETED.
     References:
@@ -67,7 +67,7 @@ def update_job_status(job_id, result_key, log_key):
     """
     try:
         table.update_item(
-            Key={"job_id": job_id},
+            Key={"user_id": user_id, "job_id": job_id},  
             UpdateExpression=(
                 "SET s3_results_bucket = :b, "
                 "s3_key_result_file = :rf, "
@@ -83,7 +83,7 @@ def update_job_status(job_id, result_key, log_key):
                 ":s": "COMPLETED"
             }
         )
-        print(f"Job {job_id} updated to COMPLETED in DynamoDB")
+        print(f"[INFO] Job {job_id} updated to COMPLETED in DynamoDB")
     except Exception as e:
         print(f"ERROR updating DynamoDB for job {job_id}: {e}")
 
@@ -95,12 +95,13 @@ if __name__ == "__main__":
       [5] Using sys.argv for command-line parameters.
       [4][8][9] Using shutil, glob, and os for file management and cleanup.
     """
-    if len(sys.argv) < 3:    # [5]
-        print("Usage: python3 a8_run.py <input_vcf_file> <job_id>")
+    if len(sys.argv) < 4:    # [5]
+        print("Usage: python3 run.py <input_vcf_file> <job_id> <user_id>")
         sys.exit(1)
 
     input_file_name = sys.argv[1]
     job_id = sys.argv[2]
+    user_id = sys.argv[3]  
     job_dir = os.path.dirname(os.path.abspath(input_file_name))  # [9]
 
     print(f"Starting AnnTools job for job_id: {job_id}")
@@ -142,8 +143,8 @@ if __name__ == "__main__":
         upload_to_s3(annotated_path, S3_RESULTS_BUCKET, result_key)  # [1][7]
         upload_to_s3(log_path, S3_RESULTS_BUCKET, log_key)           # [1][7]
 
-        # Update DynamoDB status
-        update_job_status(job_id, result_key, log_key)               # [2][6]
+        # Update DynamoDB status with user_id
+        update_job_status(job_id, result_key, log_key, user_id)      
 
         # Cleanup temporary and input files
         for path in [input_file_name, annotated_path, log_path] + temp_files:
